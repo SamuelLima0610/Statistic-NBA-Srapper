@@ -1,12 +1,14 @@
 import time as tempo
 from datetime import datetime, timedelta, date
-from mongo import Mongo
+from banco_postgres import BancoDeDados
 from processador_site import ProcessadorSite
+from constante_times_siglas import TIMES
+from constantes_colunas_das_tabelas import COLUNAS_EQUIPE
 
 class Atividade:
 
     def __init__(self):
-        self.banco = Mongo()
+        self.banco = BancoDeDados()
         self.processador = ProcessadorSite()
 
     def jogou_ontem(self):
@@ -31,35 +33,45 @@ class Atividade:
             informacao_tabela = self.processador.pegar_linhas_tabela(pagina_html, tabela)
         else:
             informacao_tabela = self.processador.pegar_tabela_escondida(pagina_html, tabela) 
-        if not self.banco.existe_informacao(tabela, self.time):
-            self.banco.existe_informacao(tabela, {'team':self.time, 'info': informacao_tabela})
-        elif self.jogou_ontem():
-            self.banco.atualizar(tabela, informacao_tabela, self.time)
+        #if not self.banco.existe_informacao(tabela, self.time):
+        #    self.banco.existe_informacao(tabela, {'team':self.time, 'info': informacao_tabela})
+        #elif self.jogou_ontem():
+        #    self.banco.atualizar(tabela, informacao_tabela, self.time)
+        print(informacao_tabela)
+
+    def __inserir_time(self, nome_time):
+        pesquisa = self.banco.search(f"Select * from Equipe where Nome = '{nome_time}'", 1)
+        if pesquisa is None:
+            self.banco.insert(f'''INSERT INTO Equipe ({COLUNAS_EQUIPE}) VALUES ('{nome_time}');''')
+
+    def pegar_dados_dos_times_no_jogo(self, texto, mandante):
+        scorebox = self.processador.pegar_elemento_por_classe(texto, 'div', 'scorebox') 
+        nome_time = self.processador.pegar_time_no_scorebox(scorebox,mandante)
+        pontuacao_time = self.processador.pegar_pontuacao_no_scorebox(scorebox,mandante)
+        informacao_jogadores_times = self.processador.pegar_linhas_tabela(texto, f'box-{TIMES[nome_time]}-game-basic', ['', 'Basic Box Score Stats'])
+        return {
+            'time': nome_time,
+            'pontuacao': pontuacao_time,
+            'informacao_jogadores_no_jogo': informacao_jogadores_times,
+            'mandante': mandante
+        }
+
+    def __inserir_no_banco(self, informacao):
+        self.__inserir_time(informacao['time'])
 
     def executar(self):
-        URL = "https://www.basketball-reference.com"
-        response = self.processador.pegar_html(URL, "/teams/")
-        tempo.sleep(2)
-        infos_times = self.processador.pegar_linhas_tabela(response.text, 'teams_active')
-        for info_time in infos_times:
-            try:
-                endpoint = info_time['Franchise']['href']
-                self.time = endpoint.split('/')[-2]
-                tempo.sleep(1.5)
-                # verificar se jogou ontem
-                response = self.processador.pegar_html(URL, f'/teams/{self.time}/2024_games.html')
-                self.tabela_de_jogos = self.processador.pegar_linhas_tabela(response.text, 'div_games')
+        months = ['october', 'november', 'december', 'january', 'february', 'march', 'april', 'may', 'june']
+        years = [2024]
+        for year in years:
+            for month in months:
+                URL = "https://www.basketball-reference.com/"
+                response = self.processador.pegar_html(URL, f"leagues/NBA_{year}_games-{month}.html")
                 tempo.sleep(2)
-                response = self.processador.pegar_html(URL, endpoint)
-                tempo.sleep(2)
-                infos_time = self.processador.pegar_linhas_tabela(response.text, self.time)
-                endpoint = infos_time[0]['Season']['href']
-                response = self.processador.pegar_html(URL, endpoint)
-                tempo.sleep(2)
-                self.processar_informacao('totals', response.text, False)
-                self.processar_informacao('team_and_opponent', response.text, True)
-                self.processar_informacao('team_misc', response.text, True)
-                self.processar_informacao('per_game', response.text, False)
-            except Exception as e:
-                print(e)
-        self.banco.fechar_banco()
+                jogos = self.processador.pegar_linhas_tabela(response.text, 'schedule')
+                for jogo in jogos:
+                    response = self.processador.pegar_html(URL, jogo['Box Score'])
+                    tempo.sleep(2)
+                    self.__inserir_no_banco(self.pegar_dados_dos_times_no_jogo(response.text, True))
+                    self.__inserir_no_banco(self.pegar_dados_dos_times_no_jogo(response.text, False))
+                    print("Oi")
+        #self.banco.fechar_banco()

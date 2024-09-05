@@ -5,12 +5,12 @@ from bs4 import BeautifulSoup, Comment
 
 class ProcessadorSite:
 
-    def pegar_linhas_tabela(self, text, id_tabela):
+    def pegar_linhas_tabela(self, text, id_tabela, chaves_a_serem_desconsideradas=[]):
         soup = BeautifulSoup(text)
         tabela = soup.find(attrs={"id": id_tabela})
         cabecalho = tabela.find('thead')
         colunas_cabecalho = cabecalho.find_all('th')
-        colunas = [coluna.text for coluna in colunas_cabecalho]
+        colunas = [coluna.text for coluna in colunas_cabecalho if coluna.text not in chaves_a_serem_desconsideradas]
         corpos_tabela = tabela.find_all('tbody')
         infos = []
         for corpo in corpos_tabela:
@@ -20,13 +20,26 @@ class ProcessadorSite:
                 a = linha.find('a')
                 if a is not None:
                     link = a['href']
+                    if colunas[0] in ['Starters', 'Reserves']:
+                        colunas[0] = 'Player'
                     info[colunas[0]] = {"href": link, 'texto': a.text}
                 else:
                     th = linha.find('th')
                     info[colunas[0]] = th.text
                 tds = linha.find_all('td')
                 for i, td in enumerate(tds):
-                    info[colunas[i+1]] = td.text
+                    informacao = td.text
+                    coluna = colunas[i+1]
+                    if informacao == '':
+                        continue
+                    if informacao == 'Box Score':
+                        a = td.find('a')
+                        informacao = a['href']
+                        coluna = 'Box Score'
+                    else:
+                        informacao = td.text
+                        coluna = colunas[i+1]
+                    info[coluna] = informacao
                 infos.append(info)
         return infos
 
@@ -38,7 +51,7 @@ class ProcessadorSite:
                 soup = BeautifulSoup(comentario, "html.parser")
                 tabela = soup.find(attrs={"id": id})
                 if tabela is not None:
-                    return pegar_linhas_tabela(comentario, id)
+                    return self.pegar_linhas_tabela(comentario, id)
             except:
                 pass
 
@@ -49,3 +62,24 @@ class ProcessadorSite:
         response = sessao.get(url + path)
         sessao.close()
         return response
+    
+    def pegar_elemento_por_classe(self, text, tag, classe):
+        soup = BeautifulSoup(text)
+        elemento = soup.find(tag, {'class':classe})
+        return elemento
+        
+    def pegar_time_no_scorebox(self, elemento, time_da_casa):
+        if time_da_casa:
+            time = elemento.find_all('strong')[0]
+        else:
+            time = elemento.find_all('strong')[1]
+        time = time.text
+        return time.replace('\n','')
+    
+    def pegar_pontuacao_no_scorebox(self, elemento, time_da_casa):
+        if time_da_casa:
+            pontuacao = elemento.find_all('div', {'class': 'score'})[0]
+        else:
+            pontuacao = elemento.find_all('div', {'class': 'score'})[1]
+        pontuacao = pontuacao.text
+        return pontuacao.replace('\n','')
