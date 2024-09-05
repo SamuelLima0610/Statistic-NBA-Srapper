@@ -3,7 +3,9 @@ from datetime import datetime, timedelta, date
 from banco_postgres import BancoDeDados
 from processador_site import ProcessadorSite
 from constante_times_siglas import TIMES
-from constantes_colunas_das_tabelas import COLUNAS_EQUIPE
+from constantes_colunas_das_tabelas import COLUNAS_EQUIPE, COLUNAS_JOGO, COLUNAS_TEMPORADA
+
+MESES = {'Oct': 10, 'Nov': 11, 'Dec': 12, 'Jan': 1, 'Feb': 2, 'Mar': 3, 'Apr': 4, 'May': 5, 'June': 6}
 
 class Atividade:
 
@@ -43,7 +45,16 @@ class Atividade:
         pesquisa = self.banco.search(f"Select * from Equipe where Nome = '{nome_time}'", 1)
         if pesquisa is None:
             self.banco.insert(f'''INSERT INTO Equipe ({COLUNAS_EQUIPE}) VALUES ('{nome_time}');''')
-
+            pesquisa = self.banco.search(f"Select * from Equipe where Nome = '{nome_time}'", 1)
+        return pesquisa[0]
+    
+    def __inserir_temporada(self, temporada):
+        pesquisa = self.banco.search(f"Select * from Temporada where Periodo = '{temporada}'", 1)
+        if pesquisa is None:
+            self.banco.insert(f'''INSERT INTO Temporada ({COLUNAS_TEMPORADA}) VALUES ('{temporada}');''')
+            pesquisa = self.banco.search(f"Select * from Temporada where Periodo = '{temporada}'", 1)
+        self.temporada_codigo = pesquisa[0]
+    
     def pegar_dados_dos_times_no_jogo(self, texto, mandante):
         scorebox = self.processador.pegar_elemento_por_classe(texto, 'div', 'scorebox') 
         nome_time = self.processador.pegar_time_no_scorebox(scorebox,mandante)
@@ -56,22 +67,36 @@ class Atividade:
             'mandante': mandante
         }
 
-    def __inserir_no_banco(self, informacao):
-        self.__inserir_time(informacao['time'])
+    def __processar_data(self, data):
+        data_split = data.split(',')
+        mes = data_split[1].strip().split(' ')[0]
+        dia = data_split[1].strip().split(' ')[1]
+        mes = MESES[mes]
+        return f"'{data_split[2].strip()}-{mes}-{dia}'"
 
+    def __inserir_jogo_no_banco(self, data, informacao_mandante, informacao_visitante):
+        codigo_time_mandante = self.__inserir_time(informacao_mandante['time'])
+        codigo_time_visitante = self.__inserir_time(informacao_visitante['time'])
+        valores = f'{self.temporada_codigo}, {data}, {codigo_time_mandante}, {codigo_time_visitante}, {informacao_mandante["pontuacao"]}, {informacao_visitante["pontuacao"]}'
+        pesquisa = self.banco.search(f"Select * from Jogo where Data = {data} and Codigo_time_mandante = {codigo_time_mandante}", 1)
+        if pesquisa is None:
+            self.banco.insert(f'''INSERT INTO Jogo ({COLUNAS_JOGO}) VALUES ({valores});''')
+            pesquisa = self.banco.search(f"Select * from Jogo where Data = '{data}' and Codigo_time_mandante = {codigo_time_mandante}", 1)
+        return pesquisa[0]
+        
     def executar(self):
-        months = ['october', 'november', 'december', 'january', 'february', 'march', 'april', 'may', 'june']
-        years = [2024]
-        for year in years:
-            for month in months:
+        meses = ['october', 'november', 'december', 'january', 'february', 'march', 'april', 'may', 'june']
+        anos = [2024]
+        for ano in anos:
+            self.__inserir_temporada(f'{ano}')
+            for mes in meses:
                 URL = "https://www.basketball-reference.com/"
-                response = self.processador.pegar_html(URL, f"leagues/NBA_{year}_games-{month}.html")
+                response = self.processador.pegar_html(URL, f"leagues/NBA_{ano}_games-{mes}.html")
                 tempo.sleep(2)
                 jogos = self.processador.pegar_linhas_tabela(response.text, 'schedule')
                 for jogo in jogos:
                     response = self.processador.pegar_html(URL, jogo['Box Score'])
                     tempo.sleep(2)
-                    self.__inserir_no_banco(self.pegar_dados_dos_times_no_jogo(response.text, True))
-                    self.__inserir_no_banco(self.pegar_dados_dos_times_no_jogo(response.text, False))
+                    self.__inserir_jogo_no_banco(self.__processar_data(jogo['Date']['texto']), self.pegar_dados_dos_times_no_jogo(response.text, True), self.pegar_dados_dos_times_no_jogo(response.text, False))
                     print("Oi")
         #self.banco.fechar_banco()
