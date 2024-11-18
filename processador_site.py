@@ -1,6 +1,7 @@
 import requests
 from header import HEADER
 from bs4 import BeautifulSoup, Comment
+from constantes import INFORMACAO_JOGO
 
 
 class ProcessadorSite:
@@ -36,6 +37,8 @@ class ProcessadorSite:
                         a = td.find('a')
                         informacao = a['href']
                         coluna = 'Box Score'
+                    elif colunas[i+1] in INFORMACAO_JOGO.keys():
+                        coluna = INFORMACAO_JOGO[colunas[i+1]]
                     else:
                         informacao = td.text
                         coluna = colunas[i+1]
