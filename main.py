@@ -1,12 +1,12 @@
-from atividade import Atividade
+from mining import Atividade
 
 def main():
-    meses = [['november', 'april', 'june'], ['february', 'december'], [ 'march', 'january']]
-    atividades = []
-    for lista_mes in meses:
-        atividade = Atividade(lista_mes)
-        atividade.start()
-        atividades.append(atividade)
-    for atividade in atividades:
-        atividade.join()
+    lists_of_monthes = [['november', 'april', 'june'], ['february', 'december'], [ 'march', 'january']]
+    threads = []
+    for list_of_monthes in lists_of_monthes:
+        thread = Atividade(list_of_monthes)
+        thread.start()
+        threads.append(thread)
+    for thread in threads:
+        thread.join()
 main()

@@ -1,88 +1,88 @@
 import requests
 from header import HEADER
 from bs4 import BeautifulSoup, Comment
-from constantes import INFORMACAO_JOGO
+from constants import GAME_COLUMNS
 
 
 class ProcessadorSite:
 
-    def pegar_linhas_tabela(self, text, id_tabela, chaves_a_serem_desconsideradas=[]):
+    def get_info_from_table(self, text, tabel_id, dont_get=[]):
         soup = BeautifulSoup(text)
-        tabela = soup.find(attrs={"id": id_tabela})
-        cabecalho = tabela.find('thead')
-        colunas_cabecalho = cabecalho.find_all('th')
-        colunas = [coluna.text for coluna in colunas_cabecalho if coluna.text not in chaves_a_serem_desconsideradas]
-        corpos_tabela = tabela.find_all('tbody')
+        tabel = soup.find(attrs={"id": tabel_id})
+        header_table = tabel.find('thead')
+        header_columns = header_table.find_all('th')
+        columns = [column.text for column in header_columns if column.text not in dont_get]
+        tabel_body = tabel.find_all('tbody')
         infos = []
-        for corpo in corpos_tabela:
-            linhas_corpo = corpo.find_all('tr')
-            for linha in linhas_corpo:
+        for body in tabel_body:
+            trs = body.find_all('tr')
+            for tr in trs:
                 info = {}
-                a = linha.find('a')
+                a = tr.find('a')
                 if a is not None:
                     link = a['href']
-                    if colunas[0] in ['Starters', 'Reserves']:
-                        colunas[0] = 'Player'
-                    info[colunas[0]] = {"href": link, 'texto': a.text}
+                    if columns[0] in ['Starters', 'Reserves']:
+                        columns[0] = 'Player'
+                    info[columns[0]] = {"href": link, 'text': a.text}
                 else:
-                    th = linha.find('th')
-                    info[colunas[0]] = th.text
-                tds = linha.find_all('td')
+                    th = tr.find('th')
+                    info[columns[0]] = th.text
+                tds = tr.find_all('td')
                 for i, td in enumerate(tds):
-                    informacao = td.text
-                    coluna = colunas[i+1]
-                    if informacao == '':
+                    info = td.text
+                    column = columns[i+1]
+                    if info == '':
                         continue
-                    if informacao == 'Box Score':
+                    if info == 'Box Score':
                         a = td.find('a')
-                        informacao = a['href']
-                        coluna = 'Box Score'
-                    elif colunas[i+1] in INFORMACAO_JOGO.keys():
-                        coluna = INFORMACAO_JOGO[colunas[i+1]]
+                        info = a['href']
+                        column = 'Box Score'
+                    elif columns[i+1] in GAME_COLUMNS.keys():
+                        column = GAME_COLUMNS[columns[i+1]]
                     else:
                         informacao = td.text
-                        coluna = colunas[i+1]
-                    info[coluna] = informacao
+                        column = columns[i+1]
+                    info[column] = informacao
                 infos.append(info)
         return infos
 
-    def pegar_tabela_escondida(self, text, id):
+    def get_info_from_table_commented(self, text, id):
         soup = BeautifulSoup(text)
-        comentarios_na_pagina = soup.find_all(string=lambda text: isinstance(text, Comment))
-        for comentario in comentarios_na_pagina:
+        comments = soup.find_all(string=lambda text: isinstance(text, Comment))
+        for comment in comments:
             try:
-                soup = BeautifulSoup(comentario, "html.parser")
-                tabela = soup.find(attrs={"id": id})
-                if tabela is not None:
-                    return self.pegar_linhas_tabela(comentario, id)
+                soup = BeautifulSoup(comment, "html.parser")
+                tabel = soup.find(attrs={"id": id})
+                if tabel is not None:
+                    return self.get_info_from_table(comment, id)
             except:
                 pass
 
-    def pegar_html(self, url, path):
-        sessao = requests.session()
-        sessao.headers = HEADER
-        sessao.headers["path"] = path
-        response = sessao.get(url + path)
-        sessao.close()
+    def get_html(self, url, path):
+        session = requests.session()
+        session.headers = HEADER
+        session.headers["path"] = path
+        response = session.get(url + path)
+        session.close()
         return response
     
-    def pegar_elemento_por_classe(self, text, tag, classe):
+    def get_element_by_class(self, text, tag, classe):
         soup = BeautifulSoup(text)
-        elemento = soup.find(tag, {'class':classe})
-        return elemento
+        element = soup.find(tag, {'class':classe})
+        return element
         
-    def pegar_time_no_scorebox(self, elemento, time_da_casa):
-        if time_da_casa:
-            time = elemento.find_all('strong')[0]
+    def get_scorebox_from_team(self, element, is_home_team):
+        if is_home_team:
+            team = element.find_all('strong')[0]
         else:
-            time = elemento.find_all('strong')[1]
-        time = time.text
-        return time.replace('\n','')
+            team = element.find_all('strong')[1]
+        team = team.text
+        return team.replace('\n','')
     
-    def pegar_pontuacao_no_scorebox(self, elemento, time_da_casa):
-        if time_da_casa:
-            pontuacao = elemento.find_all('div', {'class': 'score'})[0]
+    def get_scorebox(self, elemento, is_home_team):
+        if is_home_team:
+            scorebox = elemento.find_all('div', {'class': 'score'})[0]
         else:
-            pontuacao = elemento.find_all('div', {'class': 'score'})[1]
-        pontuacao = pontuacao.text
-        return pontuacao.replace('\n','')
+            scorebox = elemento.find_all('div', {'class': 'score'})[1]
+        scorebox = scorebox.text
+        return scorebox.replace('\n','')

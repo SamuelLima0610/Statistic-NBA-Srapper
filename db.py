@@ -3,7 +3,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
-class BancoDeDados:
+class Database:
 
     def __init__(self):
         self.conn = psycopg2.connect(database=os.environ['NOME'],
@@ -33,6 +33,6 @@ class BancoDeDados:
         except Exception as e:
             print(e)
 
-    def fechar(self):
+    def close(self):
         self.cursor.close()
         self.conn.close()
