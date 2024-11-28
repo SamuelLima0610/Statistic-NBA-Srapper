@@ -126,22 +126,28 @@ class Mining(Thread):
         self.__insert_players_game_info(game_code, guest_team_code, guest_team_info)
         
     def run(self):
-        years = [2024]
+        years = [2026]
         for year in years:
             self.__insert_season(f'{year}')
             for month in self.monthes:
-                print(f'{month}/{year}')
-                response = self.html_processor.get_html(URL, f"leagues/NBA_{year}_games-{month}.html")
-                tempo.sleep(2)
-                games = self.html_processor.get_info_from_table(response.text, 'schedule')
-                for indice in tqdm(range(len(games))):
-                    tempo.sleep(5)
-                    response = self.html_processor.get_html(URL, games[indice]['Box Score'])
+                try:
+                    print(f'{month}/{year}')
+                    response = self.html_processor.get_html(URL, f"leagues/NBA_{year}_games-{month}.html")
                     tempo.sleep(2)
-                    game_info = {
-                        'data': self.__process_date(games[indice]['Date']['text']),
-                        'home': self.get_info_game(response.text, True),
-                        'guest': self.get_info_game(response.text, False)
-                    }
-                    self.__insert_game(game_info['data'], game_info['home'], game_info['guest'])
+                    games = self.html_processor.get_info_from_table(response.text, 'schedule')
+                except:
+                    break
+                for indice in tqdm(range(len(games))):
+                    try:
+                        tempo.sleep(5)
+                        response = self.html_processor.get_html(URL, games[indice]['Box Score'])
+                        tempo.sleep(2)
+                        game_info = {
+                            'data': self.__process_date(games[indice]['Date']['text']),
+                            'home': self.get_info_game(response.text, True),
+                            'guest': self.get_info_game(response.text, False)
+                        }
+                        self.__insert_game(game_info['data'], game_info['home'], game_info['guest'])
+                    except:
+                        pass
         self.database.close()
