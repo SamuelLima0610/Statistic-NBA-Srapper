@@ -1,6 +1,6 @@
 import time as tempo
 from db import Database
-from processador_site import ProcessadorSite
+from site_processor import SiteProcessor
 from constants import GAME_COLUMNS, TEAMS, COLUMNS_GAME, COLUMNS_SEASON, PLAYER_COLUMNS_DATABASE
 from tqdm import tqdm
 from threading import Thread
@@ -15,9 +15,9 @@ class Mining(Thread):
         super().__init__()
         self.monthes = monthes
         self.database = Database()
-        self.html_processor = ProcessadorSite()
+        self.html_processor = SiteProcessor()
 
-    def __insert_team(self, teams_name):
+    def __insert_team_db(self, teams_name):
         search = self.database.search(f"Select * from Equipe where Nome = '{teams_name}'", 1)
         if search is None:
             self.database.insert(f'''INSERT INTO Equipe ({COLUMNS_GAME}) VALUES ('{teams_name}');''')
@@ -33,14 +33,14 @@ class Mining(Thread):
     
     def get_info_game(self, html, is_home_team):
         scorebox = self.html_processor.get_element_by_class(html, 'div', 'scorebox') 
-        teams_name = self.html_processor.get_scorebox_from_team(scorebox, is_home_team)
-        team_score = self.html_processor.get_scorebox_from_team(scorebox, is_home_team)
+        teams_name = self.html_processor.get_team(scorebox, is_home_team)
+        team_score = self.html_processor.get_scorebox(scorebox, is_home_team)
         team_info_game = self.html_processor.get_info_from_table(html, f'box-{TEAMS[teams_name]}-game-basic', ['', 'Basic Box Score Stats']) 
         return {
-            'time': teams_name,
-            'pontuacao': team_score,
-            'informacao_jogadores_no_jogo': team_info_game,
-            'mandante': is_home_team
+            'team': teams_name,
+            'score': team_score,
+            'player_stats': team_info_game,
+            'home': is_home_team
         }
 
     def __process_date(self, date):
@@ -50,7 +50,7 @@ class Mining(Thread):
         month = MONTHES[month]
         return f"'{split_date[2].strip()}-{month}-{day}'"
 
-    def __insert_player(self, team_code, players_info):
+    def __insert_player_db(self, team_code, players_info):
         try:
             players_info['Player']['text'].index("'")
             players_name = players_info['Player']['text'].replace("'", "") 
@@ -64,47 +64,59 @@ class Mining(Thread):
             search = self.database.search(f"Select * from Jogador where Nome = '{players_name}'", 1)
         return search[0]
 
+    def __insert_player(self, team_code, players_info, players_game_info):
+        try:
+            tempo.sleep(3)
+            player_code = self.__insert_player_db(team_code, players_info)
+            players_game_info['Codigo_jogador_fk'] = str(player_code)
+        except:
+            pass
+
+    def __process_time_on_court(self, player_info, key):
+        minutos = player_info[key].split(':')[0]
+        segundos = player_info[key].split(':')[1]
+        player_info[key] = int(minutos) * 60 + int(segundos)
+        player_info[key] = str(player_info[key])
+
+    def __process_minus_plus_from_player(self, player_info, players_game_info, key):
+        if player_info[key] == '0':
+            players_game_info['Contribuicao_foi_positiva'] = 'false'
+            players_game_info[key] = '0'
+            return
+        elif player_info[key][0] == '+':
+            players_game_info['Contribuicao_foi_positiva'] = 'true'
+        else:
+            players_game_info['Contribuicao_foi_positiva'] = 'false'
+        players_game_info[key] = player_info[key][1:]
+
+    def __insert_player_stats_game_db(self, players_game_info, game_code):
+        search = self.database.search(f"Select * from informacao_jogador_por_jogo where Codigo_jogador_fk = {players_game_info['Codigo_jogador_fk']} and Codigo_jogo_fk = {game_code};", 1)
+        if search is None:
+            columns =','.join(players_game_info.keys())
+            values = ','.join(players_game_info.values())
+            self.database.insert(f'''INSERT INTO informacao_jogador_por_jogo ({columns}) VALUES ({values});''')
+    
     def __insert_players_game_info(self, game_code, team_code, players_info):
         players_game_info = {"Codigo_jogo_fk": str(game_code)}
-        for player_info in players_info['informacao_jogadores_no_jogo']:
+        for player_info in players_info['player_stats']:
             for key in player_info.keys():
                 if key == "Player" and type(player_info[key]) == dict:
-                    try:
-                        tempo.sleep(3)
-                        player_code = self.__insert_player(team_code, players_info)
-                        players_game_info['Codigo_jogador_fk'] = str(player_code)
-                    except:
-                        pass
+                    self.__insert_player(team_code, player_info, players_game_info)
                 elif key in GAME_COLUMNS.values():
                     if key == 'Tempo_em_quadra':
                         if player_info[key] in ['Did Not Play','Did Not Dress', 'Not With Team', 'Player Suspended']:
                             return
-                        minutos = player_info[key].split(':')[0]
-                        segundos = player_info[key].split(':')[1]
-                        player_info[key] = int(minutos) * 60 + int(segundos)
-                        player_info[key] = str(player_info[key])
+                        self.__process_time_on_court(player_info, key)
                     elif key == 'Contribuicao':
-                        if player_info[key] == '0':
-                            players_game_info['Contribuicao_foi_positiva'] = 'false'
-                            players_game_info[key] = '0'
-                            continue
-                        elif player_info[key][0] == '+':
-                            players_game_info['Contribuicao_foi_positiva'] = 'true'
-                        else:
-                            players_game_info['Contribuicao_foi_positiva'] = 'false'
-                        players_game_info[key] = player_info[key][1:]
+                        self.__process_minus_plus_from_player(player_info, players_game_info, key)
                         continue
                     players_game_info[key] = player_info[key]
-            search = self.database.search(f"Select * from informacao_jogador_por_jogo where Codigo_jogador_fk = {player_code} and Codigo_jogo_fk = {game_code};", 1)
-            if search is None:
-                columns =','.join(players_game_info.keys())
-                values = ','.join(players_game_info.values())
-                self.database.insert(f'''INSERT INTO informacao_jogador_por_jogo ({columns}) VALUES ({values});''')
+            self.__insert_player_stats_game_db(players_game_info, game_code)
 
     def __insert_game(self, date, home_team_info, guest_team_info):
-        home_team_code = self.__insert_team(home_team_info['time'])
-        guest_team_code = self.__insert_team(guest_team_info['time'])
-        values = f'{self.season_code}, {date}, {home_team_code}, {guest_team_code}, {home_team_info["pontuacao"]}, {guest_team_info["pontuacao"]}'
+        home_team_code = self.__insert_team_db(home_team_info['team'])
+        guest_team_code = self.__insert_team_db(guest_team_info['team'])
+        values = f'{self.season_code}, {date}, {home_team_code}, {guest_team_code}, {home_team_info["score"]}, {guest_team_info["score"]}'
         search = self.database.search(f"Select * from Jogo where Data = {date} and Codigo_time_mandante = {home_team_code}", 1)
         if search is None:
             self.database.insert(f'''INSERT INTO Jogo ({COLUMNS_GAME}) VALUES ({values});''')
@@ -126,10 +138,10 @@ class Mining(Thread):
                     tempo.sleep(5)
                     response = self.html_processor.get_html(URL, games[indice]['Box Score'])
                     tempo.sleep(2)
-                    informacao_jogo = {
+                    game_info = {
                         'data': self.__process_date(games[indice]['Date']['text']),
-                        'mandante': self.get_info_game(response.text, True),
-                        'visitante': self.get_info_game(response.text, False)
+                        'home': self.get_info_game(response.text, True),
+                        'guest': self.get_info_game(response.text, False)
                     }
-                    self.__insert_game(informacao_jogo['data'], informacao_jogo['mandante'], informacao_jogo['visitante'])
+                    self.__insert_game(game_info['data'], game_info['home'], game_info['guest'])
         self.database.close()

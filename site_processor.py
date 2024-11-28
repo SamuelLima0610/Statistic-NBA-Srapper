@@ -4,45 +4,55 @@ from bs4 import BeautifulSoup, Comment
 from constants import GAME_COLUMNS
 
 
-class ProcessadorSite:
+class SiteProcessor:
 
-    def get_info_from_table(self, text, tabel_id, dont_get=[]):
+    def __get_table_info(self, text, tabel_id, dont_get):
         soup = BeautifulSoup(text)
         tabel = soup.find(attrs={"id": tabel_id})
         header_table = tabel.find('thead')
         header_columns = header_table.find_all('th')
         columns = [column.text for column in header_columns if column.text not in dont_get]
         tabel_body = tabel.find_all('tbody')
+        return tabel_body, columns
+
+    def __process_first_column(self, tr, columns, info):
+        a = tr.find('a')
+        if a is not None:
+            link = a['href']
+            if columns[0] in ['Starters', 'Reserves']:
+                columns[0] = 'Player'
+            info[columns[0]] = {"href": link, 'text': a.text}
+        else:
+            th = tr.find('th')
+            info[columns[0]] = th.text
+
+    def __process_columns_from_table(self, tds, columns, info):
+        for i, td in enumerate(tds):
+            text = td.text
+            column = columns[i+1]
+            if text == '':
+                continue
+            if text == 'Box Score':
+                a = td.find('a')
+                text = a['href']
+                column = 'Box Score'
+            elif columns[i+1] in GAME_COLUMNS.keys():
+                column = GAME_COLUMNS[columns[i+1]]
+            else:
+                text = td.text
+                column = columns[i+1]
+            info[column] = text
+
+    def get_info_from_table(self, text, tabel_id, dont_get=[]):
+        tabel_body, columns = self.__get_table_info(text, tabel_id, dont_get)
         infos = []
         for body in tabel_body:
             trs = body.find_all('tr')
             for tr in trs:
                 info = {}
-                a = tr.find('a')
-                if a is not None:
-                    link = a['href']
-                    if columns[0] in ['Starters', 'Reserves']:
-                        columns[0] = 'Player'
-                    info[columns[0]] = {"href": link, 'text': a.text}
-                else:
-                    th = tr.find('th')
-                    info[columns[0]] = th.text
+                self.__process_first_column(tr, columns, info)
                 tds = tr.find_all('td')
-                for i, td in enumerate(tds):
-                    info = td.text
-                    column = columns[i+1]
-                    if info == '':
-                        continue
-                    if info == 'Box Score':
-                        a = td.find('a')
-                        info = a['href']
-                        column = 'Box Score'
-                    elif columns[i+1] in GAME_COLUMNS.keys():
-                        column = GAME_COLUMNS[columns[i+1]]
-                    else:
-                        informacao = td.text
-                        column = columns[i+1]
-                    info[column] = informacao
+                self.__process_columns_from_table(tds, columns, info)
                 infos.append(info)
         return infos
 
@@ -71,7 +81,7 @@ class ProcessadorSite:
         element = soup.find(tag, {'class':classe})
         return element
         
-    def get_scorebox_from_team(self, element, is_home_team):
+    def get_team(self, element, is_home_team):
         if is_home_team:
             team = element.find_all('strong')[0]
         else:
