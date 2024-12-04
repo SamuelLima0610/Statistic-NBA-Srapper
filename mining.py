@@ -2,8 +2,8 @@ import time as tempo
 from db import Database
 from site_processor import SiteProcessor
 from constants import GAME_COLUMNS, TEAMS, COLUMNS_GAME, COLUMNS_SEASON, PLAYER_COLUMNS_DATABASE
-from tqdm import tqdm
 from threading import Thread
+from time import perf_counter
 
 
 MONTHES = {'Oct': 10, 'Nov': 11, 'Dec': 12, 'Jan': 1, 'Feb': 2, 'Mar': 3, 'Apr': 4, 'May': 5, 'Jun': 6}
@@ -11,11 +11,37 @@ URL = "https://www.basketball-reference.com/"
 
 class Mining(Thread):
 
-    def __init__(self, monthes):
+    def __init__(self, monthes, years, r, q, tabel, thread_id):
         super().__init__()
         self.monthes = monthes
         self.database = Database()
         self.html_processor = SiteProcessor()
+        self.years = years
+        self.games = []
+        self.r = r
+        self.q = q
+        self.tabel = tabel
+        self.thread_id = thread_id
+
+    def update_interface(self, begin, end, game, status):
+        time = end - begin
+        self.q.put(time)
+        self.r.event_generate('<<Updated>>', when='tail')
+        self.tabel.insert('', 0, values=(self.thread_id, game, status))
+
+    def calculate_the_amount_of_games(self):
+        for year in self.years:
+            self.__insert_season(f'{year}')
+            for month in self.monthes:
+                try:
+                    response = self.html_processor.get_html(URL, f"leagues/NBA_{year}_games-{month}.html")
+                    tempo.sleep(2)
+                    games = self.html_processor.get_info_from_table(response.text, 'schedule')
+                    games = [game for game in games if "Pontos" in game.keys()]
+                    self.games += games
+                except:
+                    break
+        return len(self.games)
 
     def __insert_team_db(self, teams_name):
         search = self.database.search(f"Select * from Equipe where Nome = '{teams_name}'", 1)
@@ -40,7 +66,8 @@ class Mining(Thread):
             'team': teams_name,
             'score': team_score,
             'player_stats': team_info_game,
-            'home': is_home_team
+            'home': is_home_team,
+            'acronym': TEAMS[teams_name]
         }
 
     def __process_date(self, date):
@@ -126,28 +153,21 @@ class Mining(Thread):
         self.__insert_players_game_info(game_code, guest_team_code, guest_team_info)
         
     def run(self):
-        years = [2026]
-        for year in years:
-            self.__insert_season(f'{year}')
-            for month in self.monthes:
-                try:
-                    print(f'{month}/{year}')
-                    response = self.html_processor.get_html(URL, f"leagues/NBA_{year}_games-{month}.html")
-                    tempo.sleep(2)
-                    games = self.html_processor.get_info_from_table(response.text, 'schedule')
-                except:
-                    break
-                for indice in tqdm(range(len(games))):
-                    try:
-                        tempo.sleep(5)
-                        response = self.html_processor.get_html(URL, games[indice]['Box Score'])
-                        tempo.sleep(2)
-                        game_info = {
-                            'data': self.__process_date(games[indice]['Date']['text']),
-                            'home': self.get_info_game(response.text, True),
-                            'guest': self.get_info_game(response.text, False)
-                        }
-                        self.__insert_game(game_info['data'], game_info['home'], game_info['guest'])
-                    except:
-                        pass
+        for game in self.games:
+            try:
+                begin = perf_counter()
+                tempo.sleep(5)
+                response = self.html_processor.get_html(URL, game['Box Score'])
+                tempo.sleep(2)
+                game_info = {
+                    'data': self.__process_date(game['Date']['text']),
+                    'home': self.get_info_game(response.text, True),
+                    'guest': self.get_info_game(response.text, False)
+                }
+                self.__insert_game(game_info['data'], game_info['home'], game_info['guest'])
+                end = perf_counter()
+                game = f'{game_info["guest"]["acronym"]}@{game_info["home"]["acronym"]}'
+                self.update_interface(begin, end, game, 'Finalizado')
+            except:
+                pass
         self.database.close()
