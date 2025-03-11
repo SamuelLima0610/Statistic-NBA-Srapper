@@ -41,6 +41,16 @@ class SiteProcessor:
             else:
                 text = td.text
                 column = columns[i+1]
+            try:
+                info[column] = int(text)
+                continue
+            except:
+                pass
+            try:
+                info[column] = float(text)
+                continue
+            except:
+                pass
             info[column] = text
 
     def get_info_from_table(self, text, tabel_id, dont_get=[]):
@@ -71,7 +81,11 @@ class SiteProcessor:
     def get_html(self, url, path):
         session = requests.session()
         session.headers = HEADER
-        session.headers["path"] = path
+        if path[0] != '/':
+            path_header = f'/{path}'
+        else:
+            path_header = path
+        session.headers["path"] = path_header
         response = session.get(url + path)
         session.close()
         return response

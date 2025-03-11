@@ -1,9 +1,10 @@
-import time as tempo
-from db import Database
+import time
+from communication_api import Api
+from constants import GAME_COLUMNS, TEAMS
 from site_processor import SiteProcessor
-from constants import GAME_COLUMNS, TEAMS, COLUMNS_GAME, COLUMNS_SEASON, PLAYER_COLUMNS_DATABASE
 from threading import Thread
 from time import perf_counter
+from datetime import datetime
 
 
 MONTHES = {'Oct': 10, 'Nov': 11, 'Dec': 12, 'Jan': 1, 'Feb': 2, 'Mar': 3, 'Apr': 4, 'May': 5, 'Jun': 6}
@@ -14,7 +15,7 @@ class Mining(Thread):
     def __init__(self, monthes, years, r, q, tabel, thread_id):
         super().__init__()
         self.monthes = monthes
-        self.database = Database()
+        self.api = Api()
         self.html_processor = SiteProcessor()
         self.years = years
         self.games = []
@@ -35,7 +36,7 @@ class Mining(Thread):
             for month in self.monthes:
                 try:
                     response = self.html_processor.get_html(URL, f"leagues/NBA_{year}_games-{month}.html")
-                    tempo.sleep(2)
+                    time.sleep(30)
                     games = self.html_processor.get_info_from_table(response.text, 'schedule')
                     games = [game for game in games if "Pontos" in game.keys()]
                     self.games += games
@@ -43,19 +44,13 @@ class Mining(Thread):
                     break
         return len(self.games)
 
-    def __insert_team_db(self, teams_name):
-        search = self.database.search(f"Select * from Equipe where Nome = '{teams_name}'", 1)
-        if search is None:
-            self.database.insert(f'''INSERT INTO Equipe ({COLUMNS_GAME}) VALUES ('{teams_name}');''')
-            search = self.database.search(f"Select * from Equipe where Nome = '{teams_name}'", 1)
-        return search[0]
+    def __insert_team(self, teams_name):
+        team = self.api.send_request('POST', '/team', object_json={'nome': teams_name})
+        return team['codigo_equipe']
     
     def __insert_season(self, season):
-        search = self.database.search(f"Select * from Temporada where Periodo = '{season}'", 1)
-        if search is None:
-            self.database.insert(f'''INSERT INTO Temporada ({COLUMNS_SEASON}) VALUES ('{season}');''')
-            search = self.database.search(f"Select * from Temporada where Periodo = '{season}'", 1)
-        self.season_code = search[0]
+        season = self.api.send_request('POST', '/season', object_json={'periodo': season})
+        self.season_code = season['codigo_temporada']
     
     def get_info_game(self, html, is_home_team):
         scorebox = self.html_processor.get_element_by_class(html, 'div', 'scorebox') 
@@ -75,27 +70,33 @@ class Mining(Thread):
         month = split_date[1].strip().split(' ')[0]
         day = split_date[1].strip().split(' ')[1]
         month = MONTHES[month]
-        return f"'{split_date[2].strip()}-{month}-{day}'"
+        return datetime.strptime(f"{split_date[2].strip()}-{month}-{day}",'%Y-%m-%d')
 
-    def __insert_player_db(self, team_code, players_info):
+    def __insert_player_api(self, team_code, players_info):
         try:
             players_info['Player']['text'].index("'")
             players_name = players_info['Player']['text'].replace("'", "") 
         except:
             players_name = players_info['Player']['text']
-        search = self.database.search(f"Select * from Jogador where Nome = '{players_name}';", 1)
-        if search is None:
-            response = self.html_processor.get_html(URL, players_info['Player']['href'])
-            nest_season_prevision = self.html_processor.get_info_from_table(response.text, 'totals')
-            self.database.insert(f'''INSERT INTO Jogador ({PLAYER_COLUMNS_DATABASE}) VALUES ({team_code}, {nest_season_prevision[-1]['Age']}, '{players_name}');''')
-            search = self.database.search(f"Select * from Jogador where Nome = '{players_name}'", 1)
-        return search[0]
+        if players_info['Player']['href'][0] == '/':
+            path = players_info['Player']['href'][1:]
+        else:
+            path = players_info['Player']['href']
+        response = self.html_processor.get_html(URL, path)
+        time.sleep(30)
+        nest_season_prevision = self.html_processor.get_info_from_table(response.text, 'totals_stats')
+        team = self.api.send_request('POST', '/player', {
+            'nome':players_name,
+            'idade': nest_season_prevision[-1]['Age'],
+            'codigo_equipe_atual': team_code,
+        })
+        return team['codigo_jogador']
 
     def __insert_player(self, team_code, players_info, players_game_info):
         try:
-            tempo.sleep(3)
-            player_code = self.__insert_player_db(team_code, players_info)
-            players_game_info['Codigo_jogador_fk'] = str(player_code)
+            time.sleep(3)
+            player_code = self.__insert_player_api(team_code, players_info)
+            players_game_info['codigo_jogador_fk'] = player_code
         except:
             pass
 
@@ -103,25 +104,17 @@ class Mining(Thread):
         minutos = player_info[key].split(':')[0]
         segundos = player_info[key].split(':')[1]
         player_info[key] = int(minutos) * 60 + int(segundos)
-        player_info[key] = str(player_info[key])
+        player_info[key] = player_info[key]
 
     def __process_minus_plus_from_player(self, player_info, players_game_info, key):
-        if player_info[key] == '0':
-            players_game_info['Contribuicao_foi_positiva'] = 'false'
-            players_game_info[key] = '0'
+        if player_info[key] == 0:
+            players_game_info['contribuicao_foi_positiva'] = False
             return
-        elif player_info[key][0] == '+':
-            players_game_info['Contribuicao_foi_positiva'] = 'true'
+        elif player_info[key] > 0:
+            players_game_info['contribuicao_foi_positiva'] = True
         else:
-            players_game_info['Contribuicao_foi_positiva'] = 'false'
-        players_game_info[key] = player_info[key][1:]
-
-    def __insert_player_stats_game_db(self, players_game_info, game_code):
-        search = self.database.search(f"Select * from informacao_jogador_por_jogo where Codigo_jogador_fk = {players_game_info['Codigo_jogador_fk']} and Codigo_jogo_fk = {game_code};", 1)
-        if search is None:
-            columns =','.join(players_game_info.keys())
-            values = ','.join(players_game_info.values())
-            self.database.insert(f'''INSERT INTO informacao_jogador_por_jogo ({columns}) VALUES ({values});''')
+            players_game_info['contribuicao_foi_positiva'] = False
+        players_game_info[key] = player_info[key]
     
     def __insert_players_game_info(self, game_code, team_code, players_info):
         players_game_info = {"Codigo_jogo_fk": str(game_code)}
@@ -138,36 +131,41 @@ class Mining(Thread):
                         self.__process_minus_plus_from_player(player_info, players_game_info, key)
                         continue
                     players_game_info[key] = player_info[key]
-            self.__insert_player_stats_game_db(players_game_info, game_code)
+            self.api.send_request('POST', '/info_game', object_json=players_game_info)
 
     def __insert_game(self, date, home_team_info, guest_team_info):
-        home_team_code = self.__insert_team_db(home_team_info['team'])
-        guest_team_code = self.__insert_team_db(guest_team_info['team'])
-        values = f'{self.season_code}, {date}, {home_team_code}, {guest_team_code}, {home_team_info["score"]}, {guest_team_info["score"]}'
-        search = self.database.search(f"Select * from Jogo where Data = {date} and Codigo_time_mandante = {home_team_code}", 1)
-        if search is None:
-            self.database.insert(f'''INSERT INTO Jogo ({COLUMNS_GAME}) VALUES ({values});''')
-            search = self.database.search(f"Select * from Jogo where Data = {date} and Codigo_time_mandante = {home_team_code}", 1)
-        game_code = search[0]
+        home_team_code = self.__insert_team(home_team_info['team'])
+        guest_team_code = self.__insert_team(guest_team_info['team'])
+        game = self.api.send_request('POST', '/game', object_json={
+            'data_jogo': date.strftime('%d/%m/%Y %H:%M:%S'),
+            'codigo_time_mandante': home_team_code,
+            'codigo_temporada_jogo': self.season_code,
+            'codigo_time_visitante': guest_team_code,
+            'pontuacao_time_mandante': int(home_team_info["score"]),
+            'pontuacao_time_visitante': int(guest_team_info["score"])
+        })
+        game_code = game['codigo_jogo']
         self.__insert_players_game_info(game_code, home_team_code, home_team_info)
         self.__insert_players_game_info(game_code, guest_team_code, guest_team_info)
-        
+
     def run(self):
+        game_infos = []
         for game in self.games:
             try:
                 begin = perf_counter()
-                tempo.sleep(5)
                 response = self.html_processor.get_html(URL, game['Box Score'])
-                tempo.sleep(2)
+                time.sleep(30)
                 game_info = {
                     'data': self.__process_date(game['Date']['text']),
                     'home': self.get_info_game(response.text, True),
                     'guest': self.get_info_game(response.text, False)
                 }
+                time.sleep(3)                
+                game_infos.append(game_info)
                 self.__insert_game(game_info['data'], game_info['home'], game_info['guest'])
                 end = perf_counter()
                 game = f'{game_info["guest"]["acronym"]}@{game_info["home"]["acronym"]}'
                 self.update_interface(begin, end, game, 'Finalizado')
-            except:
+            except Exception as e:
+                print(e)
                 pass
-        self.database.close()

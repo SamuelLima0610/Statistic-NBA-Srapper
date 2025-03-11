@@ -72,11 +72,11 @@ class App(tk.Tk):
 
     def execute_task(self):
         amount_of_games = 0
-        lists_of_monthes = [['november', 'april', 'june'], ['february', 'december'], [ 'march', 'january']]
+        lists_of_monthes = ['november', 'april', 'june', 'february', 'december', 'march', 'january'] # ['february', 'december'], [ 'march', 'january']
         threads = []
         years = self.__get_years()
-        for i, list_of_monthes in enumerate(lists_of_monthes):
-            thread = Mining(list_of_monthes, years, self, self.q, self.tree, i)
+        for i, month in enumerate(lists_of_monthes):
+            thread = Mining([month], years, self, self.q, self.tree, i)
             threads.append(thread)
             amount_of_games += thread.calculate_the_amount_of_games()
         self.progress_of_task.set_total(amount_of_games)
