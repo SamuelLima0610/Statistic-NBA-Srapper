@@ -32,11 +32,11 @@ class App(tk.Tk):
         self.pb.grid(row=7, column=0, padx=10, pady=10, sticky='nswe', columnspan=3)
 
     def __prepare_text_fields(self):
-        self.title_header = tk.Label(text=f"Dados iniciais", borderwidth=2, relief='solid')
+        self.title_header = tk.Label(text=f"Initial Data", borderwidth=2, relief='solid')
         self.title_header.grid(row=0, column=0, padx=10, pady=10, sticky='nswe', columnspan=3)
-        self.year_message = tk.Label(text="Informe o ano da temporada desejada: ", anchor='e')
+        self.year_message = tk.Label(text="Season: ", anchor='e')
         self.year_message.grid(row=1, column=0, padx=10, pady=10, sticky='nswe', columnspan=2)
-        self.stats = tk.Label(text="Dados da execução do robô", borderwidth=2, relief='solid')
+        self.stats = tk.Label(text="Progress of extraction", borderwidth=2, relief='solid')
         self.stats.grid(row=5, column=0, padx=10, pady=10, sticky='nswe', columnspan=3)
         self.progress_data = tk.Label(text=self.__update_progress(), name='info-progresso')
         self.progress_data.grid(row=6, column=0, padx=10, pady=10, sticky='nswe', columnspan=3)

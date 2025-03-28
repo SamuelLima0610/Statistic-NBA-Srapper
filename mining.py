@@ -1,6 +1,7 @@
 import time
 from communication_api import Api
 from constants import GAME_COLUMNS, TEAMS
+from exception import Erro404
 from site_processor import SiteProcessor
 from threading import Thread
 from time import perf_counter
@@ -38,19 +39,19 @@ class Mining(Thread):
                     response = self.html_processor.get_html(URL, f"leagues/NBA_{year}_games-{month}.html")
                     time.sleep(30)
                     games = self.html_processor.get_info_from_table(response.text, 'schedule')
-                    games = [game for game in games if "Pontos" in game.keys()]
+                    games = [game for game in games if "pts" in game.keys()]
                     self.games += games
                 except:
                     break
         return len(self.games)
 
     def __insert_team(self, teams_name):
-        team = self.api.send_request('POST', '/team', object_json={'nome': teams_name})
-        return team['codigo_equipe']
+        team = self.api.send_request('POST', '/team', object_json={'name': teams_name})
+        return team['team_code']
     
     def __insert_season(self, season):
-        season = self.api.send_request('POST', '/season', object_json={'periodo': season})
-        self.season_code = season['codigo_temporada']
+        season = self.api.send_request('POST', '/season', object_json={'period': season})
+        self.season_code = season['season_code']
     
     def get_info_game(self, html, is_home_team):
         scorebox = self.html_processor.get_element_by_class(html, 'div', 'scorebox') 
@@ -72,12 +73,15 @@ class Mining(Thread):
         month = MONTHES[month]
         return datetime.strptime(f"{split_date[2].strip()}-{month}-{day}",'%Y-%m-%d')
 
-    def __insert_player_api(self, team_code, players_info):
+    def __get_name(self, players_info):
         try:
             players_info['Player']['text'].index("'")
             players_name = players_info['Player']['text'].replace("'", "") 
         except:
             players_name = players_info['Player']['text']
+        return players_name
+        
+    def __insert_player_api(self, team_code, players_info):
         if players_info['Player']['href'][0] == '/':
             path = players_info['Player']['href'][1:]
         else:
@@ -86,65 +90,74 @@ class Mining(Thread):
         time.sleep(30)
         nest_season_prevision = self.html_processor.get_info_from_table(response.text, 'totals_stats')
         team = self.api.send_request('POST', '/player', {
-            'nome':players_name,
-            'idade': nest_season_prevision[-1]['Age'],
-            'codigo_equipe_atual': team_code,
+            'name':self.__get_name(players_info),
+            'age': nest_season_prevision[-1]['Age'],
+            'actual_team_code': team_code,
         })
-        return team['codigo_jogador']
+        return team['player_code']
 
     def __insert_player(self, team_code, players_info, players_game_info):
         try:
             time.sleep(3)
             player_code = self.__insert_player_api(team_code, players_info)
-            players_game_info['codigo_jogador_fk'] = player_code
+            players_game_info['player_code'] = player_code
         except:
             pass
 
     def __process_time_on_court(self, player_info, key):
-        minutos = player_info[key].split(':')[0]
-        segundos = player_info[key].split(':')[1]
-        player_info[key] = int(minutos) * 60 + int(segundos)
+        minutes = player_info[key].split(':')[0]
+        seconds = player_info[key].split(':')[1]
+        player_info[key] = int(minutes) * 60 + int(seconds)
         player_info[key] = player_info[key]
-
-    def __process_minus_plus_from_player(self, player_info, players_game_info, key):
-        if player_info[key] == 0:
-            players_game_info['contribuicao_foi_positiva'] = False
-            return
-        elif player_info[key] > 0:
-            players_game_info['contribuicao_foi_positiva'] = True
-        else:
-            players_game_info['contribuicao_foi_positiva'] = False
-        players_game_info[key] = player_info[key]
     
     def __insert_players_game_info(self, game_code, team_code, players_info):
-        players_game_info = {"Codigo_jogo_fk": str(game_code)}
-        for player_info in players_info['player_stats']:
+        last_save_index = -1
+        information = players_info['player_stats']
+        for i, player_info in enumerate(information):
+            try:
+                player = self.api.send_request('GET', f'/player/byname/{self.__get_name(player_info)}')
+                self.api.send_request('GET', f'/info_game/{game_code}/{player["player_code"]}')
+            except Erro404:
+                if player_info['mp'] not in ['Did Not Play','Did Not Dress', 'Not With Team', 'Player Suspended']:
+                    last_save_index = i
+                    break
+            except:
+                pass
+        if last_save_index == -1:
+            return
+        for player_info in information[last_save_index:]:
+            players_game_info = {"game_code": str(game_code)}
             for key in player_info.keys():
                 if key == "Player" and type(player_info[key]) == dict:
-                    self.__insert_player(team_code, player_info, players_game_info)
+                    try:
+                        player = self.api.send_request('GET', f'/player/byname/{self.__get_name(player_info)}')
+                        players_game_info['player_code'] = player['player_code']
+                    except:
+                        self.__insert_player(team_code, player_info, players_game_info)
                 elif key in GAME_COLUMNS.values():
-                    if key == 'Tempo_em_quadra':
+                    if key == 'mp':
                         if player_info[key] in ['Did Not Play','Did Not Dress', 'Not With Team', 'Player Suspended']:
-                            return
+                            break
                         self.__process_time_on_court(player_info, key)
-                    elif key == 'Contribuicao':
-                        self.__process_minus_plus_from_player(player_info, players_game_info, key)
-                        continue
                     players_game_info[key] = player_info[key]
-            self.api.send_request('POST', '/info_game', object_json=players_game_info)
+            if 'mp' in players_game_info.keys():
+                try:
+                    self.api.send_request('POST', '/info_game', object_json=players_game_info)
+                except Exception as e:
+                    print(players_game_info)
 
     def __insert_game(self, date, home_team_info, guest_team_info):
         home_team_code = self.__insert_team(home_team_info['team'])
         guest_team_code = self.__insert_team(guest_team_info['team'])
         game = self.api.send_request('POST', '/game', object_json={
-            'data_jogo': date.strftime('%d/%m/%Y %H:%M:%S'),
-            'codigo_time_mandante': home_team_code,
-            'codigo_temporada_jogo': self.season_code,
-            'codigo_time_visitante': guest_team_code,
-            'pontuacao_time_mandante': int(home_team_info["score"]),
-            'pontuacao_time_visitante': int(guest_team_info["score"])
+            'game_date': date.strftime('%d/%m/%Y %H:%M:%S'),
+            'home_team_code': home_team_code,
+            'season_code': self.season_code,
+            'guest_team_code': guest_team_code,
+            'home_score': int(home_team_info["score"]),
+            'guest_score': int(guest_team_info["score"])
         })
-        game_code = game['codigo_jogo']
+        game_code = game['game_code']
         self.__insert_players_game_info(game_code, home_team_code, home_team_info)
         self.__insert_players_game_info(game_code, guest_team_code, guest_team_info)
 

@@ -1,12 +1,7 @@
-COLUMNS_SEASON = "Periodo"
-COLUMNS_GAME = "Codigo_temporada_jogo, Data, Codigo_time_mandante, Codigo_time_visitante, Pontuacao_time_mandante, Pontuacao_time_visitante"
-COLUMNS_TEAM = "Nome"
-PLAYER_COLUMNS_DATABASE = "Codigo_equipe_atual, idade, Nome"
-COLUNAS_INFORMACOES_JOGO_JOGADOR = "Codigo_jogador_fk, Codigo_jogo_fk, Tempo_em_quadra, Arremessos, Arremessos_certos, Tres_pontos, Tres_pontos_certos, Lance_livre, Lance_livre_certos, Rebotes_ofensivos, Rebotes_defensivos, Assistencias, Roubos, Bloqueios, Bolas_perdidas, Faltas, Pontos, Contribuicao"
-GAME_COLUMNS = {"MP": "Tempo_em_quadra", "FG": "Arremessos_certos", "FGA": "Arremessos", 
-                   "3P": "Tres_pontos", "3PA": "Tres_pontos_certos", "FT":"Lance_livre_certos", "FTA": "Lance_livre",
-                   "ORB": "Rebotes_ofensivos", "DRB":"Rebotes_defensivos", "AST": "Assistencias", "STL": "Roubos", 
-                   "BLK": "Bloqueios", "TOV": "Bolas_perdidas", "PF": "Faltas", "PTS": "Pontos", "+/-": "Contribuicao"}
+GAME_COLUMNS = {   "MP": "mp", "FG": "fg", "FGA": "fga", 
+                   "3P": "three_p", "3PA": "three_pa", "FT":"ft", "FTA": "fta",
+                   "ORB": "ofr", "DRB":"dfr", "AST": "ast", "STL": "stl", 
+                   "BLK": "blk", "TOV": "tov", "PF": "pf", "PTS": "pts", "+/-": "plus_minus"}
 TEAMS = {
     "Atlanta Hawks":"ATL",
     "Boston Celtics": "BOS",

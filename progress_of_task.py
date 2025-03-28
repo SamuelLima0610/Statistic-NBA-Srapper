@@ -13,7 +13,7 @@ class ProgressOfTask:
         self.total = total
         if total == 0:
             self.porcentage_by_game = 0
-            messagebox.showinfo(title="Sem dados", message="Nenhum dado a ser processado!")
+            messagebox.showinfo(title="No data", message="There is no data to process!")
         else:
             self.porcentage_by_game = (1 / total) * 100
 
@@ -31,8 +31,8 @@ class ProgressOfTask:
         if undone_interations == 0:
             self.porcentage = 100.0
             self.time_prevision = 0
-            messagebox.showinfo(title="Finalizado",
-                                message="Finalizado com sucesso!")
+            messagebox.showinfo(title="Taks done",
+                                message="Success!")
 
     def stats_of_progression(self):
         prevision_time = f'{self.time_prevision}s'
@@ -40,7 +40,7 @@ class ProgressOfTask:
             time_in_minutes = self.time_prevision / 60
             prevision_time = f'{time_in_minutes:.2f} min'
         undone_interations = self.total - self.done
-        return f'Progresso atual: {self.porcentage:.2f}%' \
-               f'[Realizadas: {self.done} | ' \
-               f'Falta: {undone_interations} ' \
-               f'| Tempo de conclusão: {prevision_time}]'
+        return f'Porcentage: {self.porcentage:.2f}%' \
+               f'[Done: {self.done} | ' \
+               f'To Realize: {undone_interations} ' \
+               f'| Estimated Time: {prevision_time}]'
